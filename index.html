@@ -275,22 +275,24 @@
             return tracks;
         }
         
-        async function fetchArtistGenres(artistId) {
-            const response = await fetch(`https://api.spotify.com/v1/artists/${artistId}`, {
+        // Funções de processamento
+        async function fetchArtistsDetails(artistIds) {
+            // O Spotify permite até 50 IDs de artistas por chamada
+            const response = await fetch(`https://api.spotify.com/v1/artists?ids=${artistIds.join(',')}`, {
                 headers: {
                     'Authorization': 'Bearer ' + accessToken
                 }
             });
             
             if (!response.ok) {
-                throw new Error('Erro ao buscar gêneros do artista');
+                throw new Error('Erro ao buscar detalhes dos artistas');
             }
             
             const data = await response.json();
-            return data.genres;
+            return data.artists;
         }
         
-        // Funções de processamento
+        // Função de processamento refatorada sem Promises e com paginação
         async function processSavedTracks() {
             try {
                 loadingElement.style.display = 'block';
@@ -335,47 +337,52 @@
                 artistsProgressElement.style.display = 'block';
                 updateProgressBar(artistsProgressBar, artistsProgressText, 0, totalArtists);
                 
-                // Processando artistas sequencialmente em lotes para não sobrecarregar a API
-                const BATCH_SIZE = 10; // Número reduzido para evitar rate limits
+                // Processando artistas em lotes de 50 (máximo permitido pela API do Spotify)
+                const BATCH_SIZE = 50;
                 let processedCount = 0;
                 
                 for (let i = 0; i < totalArtists; i += BATCH_SIZE) {
-                    const batch = uniqueArtists.slice(i, i + BATCH_SIZE);
+                    const batchArtists = uniqueArtists.slice(i, Math.min(i + BATCH_SIZE, totalArtists));
+                    const batchIds = batchArtists.map(artist => artist.id);
                     
-                    // Processa cada artista no lote SEQUENCIALMENTE (não em paralelo)
-                    for (const artist of batch) {
-                        try {
-                            const genres = await fetchArtistGenres(artist.id);
-                            artist.genres = genres; // Salvando os gêneros no objeto do artista
-                            
-                            // Contabilizando pontuação de cada gênero
-                            for (const genre of genres) {
-                                if (!genreScores[genre]) {
-                                    genreScores[genre] = 0;
-                                    artistsByGenre[genre] = [];
-                                }
+                    try {
+                        // Busca detalhes dos artistas em um único request (até 50 artistas)
+                        const artistsDetails = await fetchArtistsDetails(batchIds);
+                        
+                        // Processa os detalhes de cada artista no lote
+                        for (const artistDetail of artistsDetails) {
+                            const artist = uniqueArtists.find(a => a.id === artistDetail.id);
+                            if (artist) {
+                                const genres = artistDetail.genres;
+                                artist.genres = genres;
                                 
-                                genreScores[genre] += artist.count;
-                                
-                                // Garantindo que cada artista é adicionado apenas uma vez por gênero
-                                if (!artistsByGenre[genre].some(a => a.id === artist.id)) {
-                                    artistsByGenre[genre].push(artist);
+                                // Contabilizando pontuação de cada gênero
+                                for (const genre of genres) {
+                                    if (!genreScores[genre]) {
+                                        genreScores[genre] = 0;
+                                        artistsByGenre[genre] = [];
+                                    }
+                                    
+                                    genreScores[genre] += artist.count;
+                                    
+                                    // Garantindo que cada artista é adicionado apenas uma vez por gênero
+                                    if (!artistsByGenre[genre].some(a => a.id === artist.id)) {
+                                        artistsByGenre[genre].push(artist);
+                                    }
                                 }
                             }
-                            
-                            // Atualiza a barra de progresso a cada artista processado
-                            processedCount++;
-                            updateProgressBar(artistsProgressBar, artistsProgressText, processedCount, totalArtists);
-                            
-                        } catch (error) {
-                            console.error('Erro ao buscar gêneros para:', artist.name, error);
-                            processedCount++; // Ainda conta como processado mesmo com erro
-                            updateProgressBar(artistsProgressBar, artistsProgressText, processedCount, totalArtists);
                         }
                         
-                        // Pequena pausa entre chamadas API para evitar rate limiting
-                        await new Promise(resolve => setTimeout(resolve, 50));
+                        // Atualiza a contagem de processados
+                        processedCount += batchArtists.length;
+                        
+                    } catch (error) {
+                        console.error('Erro ao buscar detalhes de artistas:', error);
+                        processedCount += batchArtists.length; // Ainda conta como processados mesmo com erro
                     }
+                    
+                    // Atualiza a barra de progresso após processar o lote
+                    updateProgressBar(artistsProgressBar, artistsProgressText, processedCount, totalArtists);
                 }
                 
                 // Completa a barra de progresso e a esconde depois de um momento
