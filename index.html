@@ -327,7 +327,7 @@
                     }
                 }
                 
-                // Pegando artistas únicos e buscando seus gêneros
+                // Pegando artistas únicos para buscar seus gêneros
                 const uniqueArtists = Array.from(artistsMap.values());
                 const totalArtists = uniqueArtists.length;
                 
@@ -335,13 +335,15 @@
                 artistsProgressElement.style.display = 'block';
                 updateProgressBar(artistsProgressBar, artistsProgressText, 0, totalArtists);
                 
-                // Processando artistas em lotes para não sobrecarregar a API
-                const BATCH_SIZE = 10; // Número de artistas para processar por vez
+                // Processando artistas sequencialmente em lotes para não sobrecarregar a API
+                const BATCH_SIZE = 10; // Número reduzido para evitar rate limits
+                let processedCount = 0;
                 
                 for (let i = 0; i < totalArtists; i += BATCH_SIZE) {
                     const batch = uniqueArtists.slice(i, i + BATCH_SIZE);
                     
-                    await Promise.all(batch.map(async (artist) => {
+                    // Processa cada artista no lote SEQUENCIALMENTE (não em paralelo)
+                    for (const artist of batch) {
                         try {
                             const genres = await fetchArtistGenres(artist.id);
                             artist.genres = genres; // Salvando os gêneros no objeto do artista
@@ -360,13 +362,20 @@
                                     artistsByGenre[genre].push(artist);
                                 }
                             }
+                            
+                            // Atualiza a barra de progresso a cada artista processado
+                            processedCount++;
+                            updateProgressBar(artistsProgressBar, artistsProgressText, processedCount, totalArtists);
+                            
                         } catch (error) {
                             console.error('Erro ao buscar gêneros para:', artist.name, error);
+                            processedCount++; // Ainda conta como processado mesmo com erro
+                            updateProgressBar(artistsProgressBar, artistsProgressText, processedCount, totalArtists);
                         }
-                    }));
-                    
-                    // Atualiza a barra de progresso a cada lote
-                    updateProgressBar(artistsProgressBar, artistsProgressText, Math.min(i + BATCH_SIZE, totalArtists), totalArtists);
+                        
+                        // Pequena pausa entre chamadas API para evitar rate limiting
+                        await new Promise(resolve => setTimeout(resolve, 50));
+                    }
                 }
                 
                 // Completa a barra de progresso e a esconde depois de um momento
