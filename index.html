@@ -93,6 +93,14 @@
             background-color: #333;
             margin-top: 20px;
         }
+        #debug-info {
+            margin-top: 20px;
+            padding: 10px;
+            background-color: #282828;
+            border-radius: 5px;
+            font-size: 12px;
+            display: none;
+        }
     </style>
 </head>
 <body>
@@ -216,6 +224,10 @@
                 
                 const tracks = await fetchSavedTracks();
                 
+                // Inicializando objetos
+                genreScores = {};
+                artistsByGenre = {};
+                
                 // Processamento de artistas e gêneros
                 const artistsMap = new Map(); // artistId -> {nome, count, trackIds}
                 
@@ -230,7 +242,8 @@
                                 name: artist.name,
                                 count: 0,
                                 trackIds: new Set(),
-                                externalUrl: artist.external_urls.spotify
+                                externalUrl: artist.external_urls.spotify,
+                                genres: [] // Será preenchido depois
                             });
                         }
                         
@@ -243,25 +256,34 @@
                 // Pegando artistas únicos e buscando seus gêneros
                 const uniqueArtists = Array.from(artistsMap.values());
                 
+                // Contador para mostrar progresso
+                let processedCount = 0;
+                const totalToProcess = uniqueArtists.length;
+                
                 for (const artist of uniqueArtists) {
-                    // Para evitar muitas requisições, só buscaremos gêneros para artistas com 2+ músicas salvas
-                    if (artist.count >= 2) {
-                        try {
-                            const genres = await fetchArtistGenres(artist.id);
+                    try {
+                        const genres = await fetchArtistGenres(artist.id);
+                        artist.genres = genres; // Salvando os gêneros no objeto do artista
+                        
+                        // Contabilizando pontuação de cada gênero
+                        for (const genre of genres) {
+                            if (!genreScores[genre]) {
+                                genreScores[genre] = 0;
+                                artistsByGenre[genre] = [];
+                            }
                             
-                            // Contabilizando pontuação de cada gênero
-                            for (const genre of genres) {
-                                if (!genreScores[genre]) {
-                                    genreScores[genre] = 0;
-                                    artistsByGenre[genre] = [];
-                                }
-                                
-                                genreScores[genre] += artist.count;
+                            genreScores[genre] += artist.count;
+                            
+                            // Garantindo que cada artista é adicionado apenas uma vez por gênero
+                            if (!artistsByGenre[genre].some(a => a.id === artist.id)) {
                                 artistsByGenre[genre].push(artist);
                             }
-                        } catch (error) {
-                            console.error('Erro ao buscar gêneros para:', artist.name, error);
                         }
+                        
+                        processedCount++;
+                        
+                    } catch (error) {
+                        console.error('Erro ao buscar gêneros para:', artist.name, error);
                     }
                 }
                 
@@ -282,8 +304,10 @@
         }
         
         function selectRandomGenres() {
-            // Filtrando apenas gêneros com pontuação (>0)
-            const availableGenres = Object.keys(genreScores).filter(genre => genreScores[genre] > 0);
+            // Filtrando apenas gêneros com pontuação (>0) e mais de um artista
+            const availableGenres = Object.keys(genreScores).filter(
+                genre => genreScores[genre] > 0 && artistsByGenre[genre] && artistsByGenre[genre].length > 0
+            );
             
             if (availableGenres.length < 2) {
                 alert('Não foi possível encontrar gêneros suficientes. Por favor, salve mais músicas variadas.');
@@ -371,7 +395,10 @@
                 return;
             }
             
-            for (const artist of artists) {
+            // Ordenando artistas por número de músicas salvas (já deve estar ordenado, mas garantindo)
+            const sortedArtists = [...artists].sort((a, b) => b.count - a.count);
+            
+            for (const artist of sortedArtists) {
                 const artistLink = document.createElement('a');
                 artistLink.href = artist.externalUrl;
                 artistLink.target = '_blank';
