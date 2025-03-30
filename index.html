@@ -353,7 +353,13 @@
                         for (const artistDetail of artistsDetails) {
                             const artist = uniqueArtists.find(a => a.id === artistDetail.id);
                             if (artist) {
-                                const genres = artistDetail.genres;
+                                let genres = artistDetail.genres;
+                                
+                                // Verifica se o artista não tem gêneros e adiciona "outros gêneros"
+                                if (!genres || genres.length === 0) {
+                                    genres = ["outros gêneros"];
+                                }
+                                
                                 artist.genres = genres;
                                 
                                 // Contabilizando pontuação de cada gênero
